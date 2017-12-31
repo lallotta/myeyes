@@ -45,7 +45,6 @@ int main(void)
 				strftime(file, SIZE, "%a_%b_%d_%Y_%T", info);
 				strcat(file, TYPE);
 				execlp("raspivid", "raspivid", "-t", "60000", "-hf", "-vf", "-n", "-o", file, NULL);
-				perror("camera error");
 				exit(1);
 			}
 			else
@@ -55,11 +54,7 @@ int main(void)
 					perror("wait error");
 					return 1;
 				}
-				if (status > 0)
-				{
-					perror("child error");
-					return 1;
-				}
+				if (status > 0) { return 1; }
 				printf("finished recording\n");
 			}
 		}
