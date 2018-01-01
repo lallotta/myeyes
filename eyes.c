@@ -8,9 +8,13 @@
 #include <sys/wait.h>
 #include <errno.h>
 
-#define PIR 4
+#define PIR 4 
 #define SIZE 80
 #define TYPE ".h264"
+
+void printTime(time_t *ti);
+
+void makeFileName(char *f, time_t *ti, struct tm *i);
 
 int main(void)
 {
@@ -19,39 +23,35 @@ int main(void)
 	pinMode(PIR, INPUT);
 
 	time_t t;
-	char *now;
 	struct tm *info;
 	char file[SIZE];
-	int p, status;
+	int status;
+	pid_t p;
 
 	while (1)
 	{
 		if (digitalRead(PIR) == HIGH)
 		{
-			t = time(NULL);
-			now = ctime(&t);
-			
-			printf("Motion Detected %s", now);
-
 			p = fork();
-			if (p == -1)
+			if (p < 0)
 			{
 				printf("error creating child process\n");
+				perror("fork");
 				return 1;
 			}
 			else if (p == 0)
 			{
-				info = localtime(&t);
-				strftime(file, SIZE, "%a_%b_%d_%Y_%T", info);
-				strcat(file, TYPE);
-				execlp("raspivid", "raspivid", "-t", "60000", "-hf", "-vf", "-n", "-o", file, NULL);
+				t = time(NULL);
+				printTime(&t);
+				makeFileName(file, &t, info);
+				execlp("raspivid", "raspivid", "-hf", "-vf", "-n", "-o", file, NULL);
 				exit(1);
 			}
 			else
 			{
-				if (wait(&status) == -1)
+				if (wait(&status) < 0)
 				{
-					perror("wait error");
+					perror("wait");
 					return 1;
 				}
 				if (status > 0) { return 1; }
@@ -61,3 +61,17 @@ int main(void)
 	}
 	return 0;
 }
+
+void printTime(time_t *ti)
+{
+	char *n = ctime(ti);
+	printf("Motion Detected %s", n);
+}
+
+void makeFileName(char *f, time_t *ti, struct tm *i)
+{
+	i = localtime(ti);
+	strftime(f, SIZE, "%a_%b_%d_%Y_%T", i);
+	strcat(f, TYPE);
+}
+
