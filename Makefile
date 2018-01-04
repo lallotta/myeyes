@@ -1,2 +1,2 @@
 all:
-	gcc eyes.c -lwiringPi -o eyes
+	gcc eyes.c -o eyes -lwiringPi

@@ -10,11 +10,12 @@
 
 #define PIR 4 
 #define SIZE 80
-#define TYPE ".h264"
 
 void printTime(time_t *ti);
 
-void makeFileName(char *f, time_t *ti, struct tm *i);
+void makeFileName(char *f, time_t *ti);
+
+void waitForMotion();
 
 int main(void)
 {
@@ -23,40 +24,41 @@ int main(void)
 	pinMode(PIR, INPUT);
 
 	time_t t;
-	struct tm *info;
 	char file[SIZE];
 	int status;
 	pid_t p;
 
 	while (1)
 	{
-		if (digitalRead(PIR) == HIGH)
+		waitForMotion();
+
+		p = fork();
+		if (p < 0)
 		{
-			p = fork();
-			if (p < 0)
+			printf("error creating child process\n");
+			perror("fork");
+			return 1;
+		}
+		else if (p == 0)
+		{
+			t = time(NULL);
+			printTime(&t);
+			makeFileName(file, &t);
+			execlp("/usr/bin/raspivid", "raspivid", "-hf", "-vf", "-n", "-o", file, NULL);
+			exit(1);
+		}
+		else
+		{
+			if (wait(&status) < 0)
 			{
-				printf("error creating child process\n");
-				perror("fork");
+				perror("wait");
 				return 1;
 			}
-			else if (p == 0)
-			{
-				t = time(NULL);
-				printTime(&t);
-				makeFileName(file, &t, info);
-				execlp("raspivid", "raspivid", "-hf", "-vf", "-n", "-o", file, NULL);
-				exit(1);
-			}
-			else
-			{
-				if (wait(&status) < 0)
-				{
-					perror("wait");
-					return 1;
-				}
-				if (status > 0) { return 1; }
-				printf("finished recording\n");
-			}
+
+			if (status > 0)
+				return 1;
+
+			printf("finished recording\n");
 		}
 	}
 	return 0;
@@ -65,13 +67,21 @@ int main(void)
 void printTime(time_t *ti)
 {
 	char *n = ctime(ti);
-	printf("Motion Detected %s", n);
+	printf("Motion Detected: %s", n);
 }
 
-void makeFileName(char *f, time_t *ti, struct tm *i)
+void makeFileName(char *f, time_t *ti)
 {
-	i = localtime(ti);
+	struct tm *i = localtime(ti);
 	strftime(f, SIZE, "%a_%b_%d_%Y_%T", i);
-	strcat(f, TYPE);
+	strcat(f, ".h264");
 }
 
+void waitForMotion()
+{
+	while (1)
+	{
+		if (digitalRead(PIR) == HIGH)
+			break;
+	}
+}
