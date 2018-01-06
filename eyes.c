@@ -11,8 +11,6 @@
 #define PIR 4 
 #define SIZE 80
 
-void printTime(time_t *ti);
-
 void makeFileName(char *f, time_t *ti);
 
 void waitForMotion();
@@ -42,7 +40,7 @@ int main(void)
 		else if (p == 0)
 		{
 			t = time(NULL);
-			printTime(&t);
+			printf("Motion Detected: %s", ctime(&t));
 			makeFileName(file, &t);
 			execlp("/usr/bin/raspivid", "raspivid", "-hf", "-vf", "-n", "-o", file, NULL);
 			exit(1);
@@ -62,12 +60,6 @@ int main(void)
 		}
 	}
 	return 0;
-}
-
-void printTime(time_t *ti)
-{
-	char *n = ctime(ti);
-	printf("Motion Detected: %s", n);
 }
 
 void makeFileName(char *f, time_t *ti)
