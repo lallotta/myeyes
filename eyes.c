@@ -22,7 +22,7 @@ int main(void)
 	pinMode(PIR, INPUT);
 
 	time_t t;
-	char file[SIZE];
+	char out_file[SIZE];
 	int status;
 	pid_t p;
 
@@ -41,8 +41,8 @@ int main(void)
 		{
 			t = time(NULL);
 			printf("Motion Detected: %s", ctime(&t));
-			makeFileName(file, &t);
-			execlp("/usr/bin/raspivid", "raspivid", "-hf", "-vf", "-n", "-o", file, NULL);
+			makeFileName(out_file, &t);
+			execlp("/usr/bin/raspivid", "raspivid", "-t", "60000", "-hf", "-vf", "-n", "-o", out_file, NULL);
 			exit(1);
 		}
 		else
@@ -64,8 +64,7 @@ int main(void)
 
 void makeFileName(char *f, time_t *ti)
 {
-	struct tm *i = localtime(ti);
-	strftime(f, SIZE, "%a_%b_%d_%Y_%T", i);
+	strftime(f, SIZE, "%a_%b_%d_%Y_%T", localtime(ti));
 	strcat(f, ".h264");
 }
 
@@ -74,6 +73,6 @@ void waitForMotion()
 	while (1)
 	{
 		if (digitalRead(PIR) == HIGH)
-			break;
+			return;
 	}
 }
