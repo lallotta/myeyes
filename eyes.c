@@ -9,7 +9,7 @@
 #include <errno.h>
 
 #define PIR 4 
-#define SIZE 80
+#define SIZE 50
 
 void makeFileName(char *f, time_t *ti);
 
@@ -30,31 +30,30 @@ int main(void)
 	{
 		waitForMotion();
 
+		t = time(NULL);
+		printf("Motion Detected: %s", ctime(&t));
+		
 		p = fork();
-		if (p < 0)
-		{
+		if (p < 0) {
+
 			printf("error creating child process\n");
 			perror("fork");
 			return 1;
-		}
-		else if (p == 0)
-		{
-			t = time(NULL);
-			printf("Motion Detected: %s", ctime(&t));
+
+		} else if (p == 0) {
+
 			makeFileName(out_file, &t);
 			execlp("/usr/bin/raspivid", "raspivid", "-t", "60000", "-hf", "-vf", "-n", "-o", out_file, NULL);
 			exit(1);
-		}
-		else
-		{
-			if (wait(&status) < 0)
-			{
+
+		} else {
+
+			if (wait(&status) < 0) {
 				perror("wait");
 				return 1;
 			}
 
-			if (status > 0)
-				return 1;
+			if (status > 0) return 1;
 
 			printf("finished recording\n");
 		}
@@ -72,7 +71,6 @@ void waitForMotion()
 {
 	while (1)
 	{
-		if (digitalRead(PIR) == HIGH)
-			return;
+		if (digitalRead(PIR) == HIGH) return;
 	}
 }
