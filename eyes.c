@@ -11,8 +11,6 @@
 #define PIR 4 
 #define SIZE 50
 
-void makeFileName(char *f, time_t *ti);
-
 void waitForMotion();
 
 int main(void)
@@ -42,7 +40,7 @@ int main(void)
 
 		} else if (p == 0) {
 
-			makeFileName(out_file, &t);
+			strftime(out_file, SIZE, "%a_%b_%d_%Y_%T.h264", localtime(&t));
 			execlp("/usr/bin/raspivid", "raspivid", "-t", "60000", "-hf", "-vf", "-n", "-o", out_file, NULL);
 			exit(1);
 
@@ -58,13 +56,6 @@ int main(void)
 			printf("finished recording\n");
 		}
 	}
-	return 0;
-}
-
-void makeFileName(char *f, time_t *ti)
-{
-	strftime(f, SIZE, "%a_%b_%d_%Y_%T", localtime(ti));
-	strcat(f, ".h264");
 }
 
 void waitForMotion()
