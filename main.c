@@ -11,14 +11,16 @@
 #include <sys/ioctl.h>
 #include <linux/gpio.h>
 
-#define OUTFILE_MAXLEN 64
-
 int raspivid(const char *outfile)
 {
 	char *cmd;
 	int ret;
 
-	asprintf(&cmd, "raspivid -t 60000 -hf -vf -n -o %s", outfile);
+	ret = asprintf(&cmd, "raspivid -t 60000 -hf -vf -n -o %s", outfile);
+	if (ret == -1) {
+		fprintf(stderr, "failed to allocate raspivid command string\n");
+		return ret;
+	}
 	
 	ret = system(cmd);
 	if (ret != 0) {
@@ -52,7 +54,7 @@ int main()
 	struct gpioevent_request req;
 	time_t t;
 	struct tm *localtm;
-	char outfile[OUTFILE_MAXLEN];
+	char outfile[64];
 	ssize_t rd;
 	int ret, fd;
 
