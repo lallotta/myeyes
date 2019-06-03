@@ -1,2 +1,2 @@
 all:
-	gcc eyes.c -o eyes -lwiringPi
+	gcc main.c -o myeyes -Wall -Wextra
