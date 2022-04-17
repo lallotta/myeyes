@@ -27,7 +27,7 @@ int raspivid(const char *outfile)
 		if (ret == -1)
 			perror("system");
 		else if (WIFEXITED(ret))
-				fprintf(stderr, "raspivid encountered an error: exit status: %d\n", WEXITSTATUS(ret));
+			fprintf(stderr, "raspivid encountered an error: exit status: %d\n", WEXITSTATUS(ret));
 		else if (WIFSIGNALED(ret)) {
 			if (WTERMSIG(ret) == SIGINT)
 				fprintf(stderr, "Keyboard interrupt recevied while recording %s\n", outfile);
@@ -42,59 +42,99 @@ int raspivid(const char *outfile)
 	return ret;	
 }
 
+struct motion_sensor {
+	int chip_fd;
+	unsigned int pin;
+	time_t timestamp;
+};
+
+struct motion_sensor *pir_init(unsigned int pin)
+{
+	struct motion_sensor *pir;
+	int fd;
+
+	pir = malloc(sizeof(struct motion_sensor));
+	if (!pir)
+		return NULL;
+
+	fd = open("/dev/gpiochip0", O_RDONLY);
+	if (fd == -1) {
+		free(pir);
+		return NULL;
+	}
+
+	pir->chip_fd = fd;
+	pir->pin = pin;
+	return pir;
+}
+
+int pir_wait_for_motion(struct motion_sensor *pir)
+{
+	struct gpioevent_request req;
+	struct gpioevent_data event;
+	ssize_t rd;
+	int ret;
+
+	req.lineoffset = pir->pin;
+	req.handleflags = GPIOHANDLE_REQUEST_INPUT;
+	req.eventflags = GPIOEVENT_REQUEST_RISING_EDGE;
+	strcpy(req.consumer_label, "motion_sensor");
+
+	ret = ioctl(pir->chip_fd, GPIO_GET_LINEEVENT_IOCTL, &req);
+	if (ret == -1)
+		return ret;
+	
+	rd = read(req.fd, &event, sizeof(event));
+	if (rd == -1)
+		return -1;
+
+	if (rd != sizeof(event)) {
+		errno = EIO;
+		return -1;
+	}
+
+	pir->timestamp = event.timestamp / 1000000000ULL;
+	
+	close(req.fd);
+
+	return 0;
+}
+
+void pir_release(struct motion_sensor *pir)
+{
+	close(pir->chip_fd);
+	free(pir);
+}
+
 void print_event_timestamp(const struct tm *tm)
 {
 	char now[32];
-	strftime(now, sizeof(now), "%a %F %T", tm);
+	strftime(now, sizeof(now), "%a, %b %d %Y %r %Z", tm);
 	printf("Motion Detected: %s\n", now);
 }
 
 int main()
 {
-	struct gpioevent_request req;
-	time_t t;
+	struct motion_sensor *pir;
 	struct tm *localtm;
 	char outfile[64];
-	ssize_t rd;
-	int ret, fd;
+	int ret;
 
-	fd = open("/dev/gpiochip0", 0);
-	if (fd == -1) {
-		perror("error opening GPIO character device file");
-		return 1;
+	pir = pir_init(17);
+	if (!pir) {
+		perror("pir_init");
+		return -1;
 	}
-
-	req.lineoffset = 17;
-	req.handleflags = GPIOHANDLE_REQUEST_INPUT;
-	req.eventflags = GPIOEVENT_REQUEST_RISING_EDGE;
-	strcpy(req.consumer_label, "motion_sensor");
-
+	
 	while (1) {
-		struct gpioevent_data event;
-
-		ret = ioctl(fd, GPIO_GET_LINEEVENT_IOCTL, &req);
+		ret = pir_wait_for_motion(pir);
 		if (ret == -1) {
-			perror("ioctl: error getting line event");
-			ret = 1;
-			break;
-		}
-		
-		rd = read(req.fd, &event, sizeof(event));
-		if (rd == -1) {
-			perror("error reading event");
+			perror("wait_for_motion");
 			ret = 1;
 			break;
 		}
 
-		if (rd != sizeof(event)) {
-			fprintf(stderr, "failed to read event\n");
-			ret = 1;
-			break;
-		}
-
-		t = event.timestamp / 1000000000ULL;
-
-		localtm = localtime(&t);
+		localtm = localtime(&pir->timestamp);
 		if (!localtm) {
 			perror("localtime");
 			ret = 1;
@@ -111,16 +151,9 @@ int main()
 		}
 
 		printf("Finished recording %s\n", outfile);
-
-		if (close(req.fd) == -1) {
-			perror("error closing line event fd");
-			ret = 1;
-			break;
-		}
 	}
 
-	if (close(fd) == -1)
-		perror("error closing GPIO character device file");
+	pir_release(pir);
 	
 	return ret;
 }
