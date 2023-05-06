@@ -11,14 +11,14 @@
 #include <sys/ioctl.h>
 #include <linux/gpio.h>
 
-int raspivid(const char *outfile)
+int libcamera_vid(const char *outfile)
 {
 	char *cmd;
 	int ret;
 
-	ret = asprintf(&cmd, "raspivid -t 60000 -hf -vf -n -o %s", outfile);
+	ret = asprintf(&cmd, "libcamera-vid -t 60000 -n -o %s", outfile);
 	if (ret == -1) {
-		fprintf(stderr, "failed to allocate raspivid command string\n");
+		fprintf(stderr, "failed to allocate libcamera-vid command string\n");
 		return ret;
 	}
 	
@@ -27,12 +27,12 @@ int raspivid(const char *outfile)
 		if (ret == -1)
 			perror("system");
 		else if (WIFEXITED(ret))
-				fprintf(stderr, "raspivid encountered an error: exit status: %d\n", WEXITSTATUS(ret));
+			fprintf(stderr, "libcamera-vid encountered an error: exit status: %d\n", WEXITSTATUS(ret));
 		else if (WIFSIGNALED(ret)) {
 			if (WTERMSIG(ret) == SIGINT)
-				fprintf(stderr, "Keyboard interrupt recevied while recording %s\n", outfile);
+				fprintf(stderr, "Keyboard interrupt received while recording %s\n", outfile);
 			else
-				fprintf(stderr, "raspivid terminated by signal: %d\n", WTERMSIG(ret));
+				fprintf(stderr, "libcamera-vid terminated by signal: %d\n", WTERMSIG(ret));
 		}
 
 		ret = -1;
@@ -42,86 +42,114 @@ int raspivid(const char *outfile)
 	return ret;	
 }
 
+struct motion_sensor {
+	int chip_fd;
+	unsigned int pin;
+	time_t timestamp;
+};
+
+struct motion_sensor *pir_init(unsigned int pin)
+{
+	struct motion_sensor *pir;
+	int fd;
+
+	pir = malloc(sizeof(struct motion_sensor));
+	if (!pir)
+		return NULL;
+
+	fd = open("/dev/gpiochip0", O_RDONLY);
+	if (fd == -1) {
+		free(pir);
+		return NULL;
+	}
+
+	pir->chip_fd = fd;
+	pir->pin = pin;
+	return pir;
+}
+
+int pir_wait_for_motion(struct motion_sensor *pir)
+{
+	struct gpio_v2_line_request req;
+	struct gpio_v2_line_event event;
+	ssize_t rd;
+	int ret;
+
+	memset(&req, 0, sizeof(req));
+	req.offsets[0] = pir->pin;
+	req.num_lines = 1;
+	req.config.flags = GPIO_V2_LINE_FLAG_INPUT | GPIO_V2_LINE_FLAG_EDGE_RISING | GPIO_V2_LINE_FLAG_EVENT_CLOCK_REALTIME;
+	strcpy(req.consumer, "myeyes:motion_sensor");
+
+	ret = ioctl(pir->chip_fd, GPIO_V2_GET_LINE_IOCTL, &req);
+	if (ret == -1)
+		return ret;
+
+	rd = read(req.fd, &event, sizeof(event));
+	if (rd == -1)
+		return -1;
+
+	if (rd != sizeof(event)) {
+		errno = EIO;
+		return -1;
+	}
+
+	pir->timestamp = event.timestamp_ns / 1000000000UL;
+	
+	close(req.fd);
+
+	return 0;
+}
+
+void pir_release(struct motion_sensor *pir)
+{
+	close(pir->chip_fd);
+	free(pir);
+}
+
 void print_event_timestamp(const struct tm *tm)
 {
-	char now[32];
-	strftime(now, sizeof(now), "%a %F %T", tm);
-	printf("Motion Detected: %s\n", now);
+	char now[64];
+	strftime(now, sizeof(now), "%a, %b %d %Y %T %Z", tm);
+	fprintf(stderr, "Motion Detected: %s\n", now);
 }
 
 int main()
 {
-	struct gpioevent_request req;
-	time_t t;
-	struct tm *localtm;
+	struct motion_sensor *pir;
+	struct tm *tm;
 	char outfile[64];
-	ssize_t rd;
-	int ret, fd;
 
-	fd = open("/dev/gpiochip0", 0);
-	if (fd == -1) {
-		perror("error opening GPIO character device file");
+	pir = pir_init(17);
+	if (!pir) {
+		perror("pir_init");
 		return 1;
 	}
 
-	req.lineoffset = 17;
-	req.handleflags = GPIOHANDLE_REQUEST_INPUT;
-	req.eventflags = GPIOEVENT_REQUEST_RISING_EDGE;
-	strcpy(req.consumer_label, "motion_sensor");
-
 	while (1) {
-		struct gpioevent_data event;
-
-		ret = ioctl(fd, GPIO_GET_LINEEVENT_IOCTL, &req);
-		if (ret == -1) {
-			perror("ioctl: error getting line event");
-			ret = 1;
-			break;
-		}
-		
-		rd = read(req.fd, &event, sizeof(event));
-		if (rd == -1) {
-			perror("error reading event");
-			ret = 1;
+		if (pir_wait_for_motion(pir) == -1) {
+			perror("pir_wait_for_motion");
 			break;
 		}
 
-		if (rd != sizeof(event)) {
-			fprintf(stderr, "failed to read event\n");
-			ret = 1;
-			break;
-		}
-
-		t = event.timestamp / 1000000000ULL;
-
-		localtm = localtime(&t);
-		if (!localtm) {
+		tm = localtime(&pir->timestamp);
+		if (!tm) {
 			perror("localtime");
-			ret = 1;
 			break;
 		}
 
-		print_event_timestamp(localtm);
+		print_event_timestamp(tm);
 
-		strftime(outfile, sizeof(outfile), "%F-%T.h264", localtm);
+		strftime(outfile, sizeof(outfile), "%F-%T-%Z.h264", tm);
 
-		if (raspivid(outfile) == -1) {
-			ret = 1;
+		if (libcamera_vid(outfile) == -1)
 			break;
-		}
 
-		printf("Finished recording %s\n", outfile);
-
-		if (close(req.fd) == -1) {
-			perror("error closing line event fd");
-			ret = 1;
-			break;
-		}
+		fprintf(stderr, "Finished recording %s\n", outfile);
 	}
 
-	if (close(fd) == -1)
-		perror("error closing GPIO character device file");
+	pir_release(pir);
 	
-	return ret;
+	return 1;
 }
 
